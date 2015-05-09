@@ -148,7 +148,13 @@ module Liquid
     end
 
     def evaluate(object)
-      object.respond_to?(:evaluate) ? object.evaluate(self) : object
+      respond_to_cache(object, :evaluate) ? object.evaluate(self) : object
+    end
+
+    def respond_to_cache(object, method)
+      return false if object.class == String
+      @@cache ||= {}
+      @@cache[[ object.__id__, method ]] ||= object.respond_to?(method)
     end
 
     # Fetches an object starting at the local scope and then moving up the hierachy
@@ -175,13 +181,13 @@ module Liquid
       variable  ||= lookup_and_evaluate(scope, key)
 
       variable = variable.to_liquid
-      variable.context = self if variable.respond_to?(:context=)
+      variable.context = self if respond_to_cache(variable, :context=)
 
       return variable
     end
 
     def lookup_and_evaluate(obj, key)
-      if (value = obj[key]).is_a?(Proc) && obj.respond_to?(:[]=)
+      if (value = obj[key]).is_a?(Proc) && respond_to_cache(obj, :[]=)
         obj[key] = (value.arity == 0) ? value.call : value.call(self)
       else
         value
