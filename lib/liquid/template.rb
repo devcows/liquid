@@ -134,6 +134,10 @@ module Liquid
       @instance_assigns ||= {}
     end
 
+    def instance_assigns=(instance_assigns)
+      @instance_assigns = instance_assigns
+    end
+
     def errors
       @errors ||= []
     end
