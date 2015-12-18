@@ -1,6 +1,7 @@
 module Liquid
   class Error < ::StandardError
     attr_accessor :line_number
+    attr_accessor :template_name
     attr_accessor :markup_context
 
     def to_s(with_prefix = true)
@@ -14,12 +15,6 @@ module Liquid
       end
 
       str
-    end
-
-    def set_line_number_from_token(token)
-      return unless token.respond_to?(:line_number)
-      return if line_number
-      self.line_number = token.line_number
     end
 
     def self.render(e)
@@ -41,7 +36,9 @@ module Liquid
       end
 
       if line_number
-        str << " (line #{line_number})"
+        str << " ("
+        str << template_name << " " if template_name
+        str << "line " << line_number.to_s << ")"
       end
 
       str << ": "
@@ -57,4 +54,6 @@ module Liquid
   StackLevelError = Class.new(Error)
   TaintedError = Class.new(Error)
   MemoryError = Class.new(Error)
+  ZeroDivisionError = Class.new(Error)
+  FloatDomainError = Class.new(Error)
 end

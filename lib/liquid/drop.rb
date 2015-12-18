@@ -18,28 +18,26 @@ module Liquid
   #   tmpl = Liquid::Template.parse( ' {% for product in product.top_sales %} {{ product.name }} {%endfor%} '  )
   #   tmpl.render('product' => ProductDrop.new ) # will invoke top_sales query.
   #
-  # Your drop can either implement the methods sans any parameters or implement the before_method(name) method which is a
-  # catch all.
+  # Your drop can either implement the methods sans any parameters
+  # or implement the liquid_method_missing(name) method which is a catch all.
   class Drop
     attr_writer :context
 
-    EMPTY_STRING = ''.freeze
-
     # Catch all for the method
-    def before_method(_method)
+    def liquid_method_missing(_method)
       nil
     end
 
     # called by liquid to invoke a drop
     def invoke_drop(method_or_key)
-      if method_or_key && method_or_key != EMPTY_STRING && self.class.invokable?(method_or_key)
+      if self.class.invokable?(method_or_key)
         send(method_or_key)
       else
-        before_method(method_or_key)
+        liquid_method_missing(method_or_key)
       end
     end
 
-    def has_key?(_name)
+    def key?(_name)
       true
     end
 
@@ -56,8 +54,6 @@ module Liquid
     end
 
     alias_method :[], :invoke_drop
-
-    private
 
     # Check for method existence without invoking respond_to?, which creates symbols
     def self.invokable?(method_name)

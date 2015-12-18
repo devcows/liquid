@@ -38,6 +38,12 @@ HERE
 
   def test_for_with_range
     assert_template_result(' 1  2  3 ', '{%for item in (1..3) %} {{item}} {%endfor%}')
+
+    assert_raises(Liquid::ArgumentError) do
+      Template.parse('{% for i in (a..2) %}{% endfor %}').render!("a" => [1, 2])
+    end
+
+    assert_template_result(' 0  1  2  3 ', '{% for item in (a..3) %} {{item}} {% endfor %}', "a" => "invalid integer")
   end
 
   def test_for_with_variable_range
@@ -313,6 +319,10 @@ HERE
       'outer' => [[1, 1, 1], [1, 1, 1]])
   end
 
+  def test_inner_for_over_empty_input
+    assert_template_result 'oo', '{% for a in (1..2) %}o{% for b in empty %}{% endfor %}{% endfor %}'
+  end
+
   def test_blank_string_not_iterable
     assert_template_result('', "{% for char in characters %}I WILL NOT BE OUTPUT{% endfor %}", 'characters' => '')
   end
@@ -386,5 +396,15 @@ HERE
     template = '{% for item in items offset:2 limit:2 %}{{item}}{% endfor %}'
     assert_template_result(expected, template, loader_assigns)
     assert_template_result(expected, template, array_assigns)
+  end
+
+  def test_for_cleans_up_registers
+    context = Context.new(ErrorDrop.new)
+
+    assert_raises(StandardError) do
+      Liquid::Template.parse('{% for i in (1..2) %}{{ standard_error }}{% endfor %}').render!(context)
+    end
+
+    assert context.registers[:for_stack].empty?
   end
 end

@@ -18,14 +18,14 @@ class ContextTest < Minitest::Test
 
     with_global_filter(global) do
       assert_equal 'Global test', Template.parse("{{'test' | notice }}").render!
-      assert_equal 'Local test', Template.parse("{{'test' | notice }}").render!({}, :filters => [local])
+      assert_equal 'Local test', Template.parse("{{'test' | notice }}").render!({}, filters: [local])
     end
   end
 
   def test_has_key_will_not_add_an_error_for_missing_keys
     with_error_mode :strict do
       context = Context.new
-      context.has_key?('unknown')
+      context.key?('unknown')
       assert_empty context.errors
     end
   end

@@ -13,13 +13,12 @@ class ContextDrop < Liquid::Drop
     @context['forloop.index']
   end
 
-  def before_method(method)
+  def liquid_method_missing(method)
     @context[method]
   end
 end
 
 class ProductDrop < Liquid::Drop
-
   class TextDrop < Liquid::Drop
     def array
       ['text1', 'text2']
@@ -31,8 +30,8 @@ class ProductDrop < Liquid::Drop
   end
 
   class CatchallDrop < Liquid::Drop
-    def before_method(method)
-      'method: ' << method.to_s
+    def liquid_method_missing(method)
+      'catchall_method: ' << method.to_s
     end
   end
 
@@ -60,7 +59,7 @@ class ProductDrop < Liquid::Drop
 end
 
 class EnumerableDrop < Liquid::Drop
-  def before_method(method)
+  def liquid_method_missing(method)
     method
   end
 
@@ -94,7 +93,7 @@ end
 class RealEnumerableDrop < Liquid::Drop
   include Enumerable
 
-  def before_method(method)
+  def liquid_method_missing(method)
     method
   end
 
@@ -125,8 +124,10 @@ class DropsTest < Minitest::Test
   def test_rendering_warns_on_tainted_attr
     with_taint_mode(:warn) do
       tpl = Liquid::Template.parse('{{ product.user_input }}')
-      tpl.render!('product' => ProductDrop.new)
-      assert_match /tainted/, tpl.warnings.first
+      context = Context.new('product' => ProductDrop.new)
+      tpl.render!(context)
+      assert_equal [Liquid::TaintedError], context.warnings.map(&:class)
+      assert_equal "variable 'product.user_input' is tainted and was not escaped", context.warnings.first.to_s(false)
     end
   end
 
@@ -156,14 +157,14 @@ class DropsTest < Minitest::Test
     assert_equal ' text1 ', output
   end
 
-  def test_unknown_method
+  def test_catchall_unknown_method
     output = Liquid::Template.parse(' {{ product.catchall.unknown }} ').render!('product' => ProductDrop.new)
-    assert_equal ' method: unknown ', output
+    assert_equal ' catchall_method: unknown ', output
   end
 
-  def test_integer_argument_drop
+  def test_catchall_integer_argument_drop
     output = Liquid::Template.parse(' {{ product.catchall[8] }} ').render!('product' => ProductDrop.new)
-    assert_equal ' method: 8 ', output
+    assert_equal ' catchall_method: 8 ', output
   end
 
   def test_text_array_drop
@@ -230,7 +231,7 @@ class DropsTest < Minitest::Test
     assert_equal '3', Liquid::Template.parse('{{collection.size}}').render!('collection' => EnumerableDrop.new)
   end
 
-  def test_enumerable_drop_will_invoke_before_method_for_clashing_method_names
+  def test_enumerable_drop_will_invoke_liquid_method_missing_for_clashing_method_names
     ["select", "each", "map", "cycle"].each do |method|
       assert_equal method.to_s, Liquid::Template.parse("{{collection.#{method}}}").render!('collection' => EnumerableDrop.new)
       assert_equal method.to_s, Liquid::Template.parse("{{collection[\"#{method}\"]}}").render!('collection' => EnumerableDrop.new)

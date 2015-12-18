@@ -76,6 +76,13 @@ class StandardFiltersTest < Minitest::Test
     assert_equal '', @filters.slice(nil, 0)
     assert_equal '', @filters.slice('foobar', 100, 10)
     assert_equal '', @filters.slice('foobar', -100, 10)
+    assert_equal 'oob', @filters.slice('foobar', '1', '3')
+    assert_raises(Liquid::ArgumentError) do
+      @filters.slice('foobar', nil)
+    end
+    assert_raises(Liquid::ArgumentError) do
+      @filters.slice('foobar', 0, "")
+    end
   end
 
   def test_slice_on_arrays
@@ -111,6 +118,7 @@ class StandardFiltersTest < Minitest::Test
 
   def test_escape
     assert_equal '&lt;strong&gt;', @filters.escape('<strong>')
+    assert_equal nil, @filters.escape(nil)
     assert_equal '&lt;strong&gt;', @filters.h('<strong>')
   end
 
@@ -121,6 +129,13 @@ class StandardFiltersTest < Minitest::Test
   def test_url_encode
     assert_equal 'foo%2B1%40example.com', @filters.url_encode('foo+1@example.com')
     assert_equal nil, @filters.url_encode(nil)
+  end
+
+  def test_url_decode
+    assert_equal 'foo bar', @filters.url_decode('foo+bar')
+    assert_equal 'foo bar', @filters.url_decode('foo%20bar')
+    assert_equal 'foo+1@example.com', @filters.url_decode('foo%2B1%40example.com')
+    assert_equal nil, @filters.url_decode(nil)
   end
 
   def test_truncatewords
@@ -151,6 +166,14 @@ class StandardFiltersTest < Minitest::Test
     assert_equal [{ "a" => 1 }, { "a" => 2 }, { "a" => 3 }, { "a" => 4 }], @filters.sort([{ "a" => 4 }, { "a" => 3 }, { "a" => 1 }, { "a" => 2 }], "a")
   end
 
+  def test_sort_empty_array
+    assert_equal [], @filters.sort([], "a")
+  end
+
+  def test_sort_natural_empty_array
+    assert_equal [], @filters.sort_natural([], "a")
+  end
+
   def test_legacy_sort_hash
     assert_equal [{ a: 1, b: 2 }], @filters.sort({ a: 1, b: 2 })
   end
@@ -163,10 +186,19 @@ class StandardFiltersTest < Minitest::Test
   end
 
   def test_uniq
+    assert_equal ["foo"], @filters.uniq("foo")
     assert_equal [1, 3, 2, 4], @filters.uniq([1, 1, 3, 2, 3, 1, 4, 3, 2, 1])
     assert_equal [{ "a" => 1 }, { "a" => 3 }, { "a" => 2 }], @filters.uniq([{ "a" => 1 }, { "a" => 3 }, { "a" => 1 }, { "a" => 2 }], "a")
     testdrop = TestDrop.new
     assert_equal [testdrop], @filters.uniq([testdrop, TestDrop.new], 'test')
+  end
+
+  def test_uniq_empty_array
+    assert_equal [], @filters.uniq([], "a")
+  end
+
+  def test_compact_empty_array
+    assert_equal [], @filters.compact([], "a")
   end
 
   def test_reverse
@@ -255,8 +287,10 @@ class StandardFiltersTest < Minitest::Test
 
     assert_equal '', @filters.date('', "%B")
 
-    assert_equal "07/05/2006", @filters.date(1152098955, "%m/%d/%Y")
-    assert_equal "07/05/2006", @filters.date("1152098955", "%m/%d/%Y")
+    with_timezone("UTC") do
+      assert_equal "07/05/2006", @filters.date(1152098955, "%m/%d/%Y")
+      assert_equal "07/05/2006", @filters.date("1152098955", "%m/%d/%Y")
+    end
   end
 
   def test_first_last
@@ -268,13 +302,17 @@ class StandardFiltersTest < Minitest::Test
 
   def test_replace
     assert_equal '2 2 2 2', @filters.replace('1 1 1 1', '1', 2)
+    assert_equal '2 2 2 2', @filters.replace('1 1 1 1', 1, 2)
     assert_equal '2 1 1 1', @filters.replace_first('1 1 1 1', '1', 2)
+    assert_equal '2 1 1 1', @filters.replace_first('1 1 1 1', 1, 2)
     assert_template_result '2 1 1 1', "{{ '1 1 1 1' | replace_first: '1', 2 }}"
   end
 
   def test_remove
     assert_equal '   ', @filters.remove("a a a a", 'a')
+    assert_equal '   ', @filters.remove("1 1 1 1", 1)
     assert_equal 'a a a', @filters.remove_first("a a a a", 'a ')
+    assert_equal ' 1 1 1', @filters.remove_first("1 1 1 1", 1)
     assert_template_result 'a a a', "{{ 'a a a a' | remove_first: 'a ' }}"
   end
 
@@ -333,26 +371,41 @@ class StandardFiltersTest < Minitest::Test
     assert_equal "Liquid error: divided by 0", Template.parse("{{ 5 | divided_by:0 }}").render
 
     assert_template_result "0.5", "{{ 2.0 | divided_by:4 }}"
+    assert_raises(Liquid::ZeroDivisionError) do
+      assert_template_result "4", "{{ 1 | modulo: 0 }}"
+    end
   end
 
   def test_modulo
     assert_template_result "1", "{{ 3 | modulo:2 }}"
+    assert_raises(Liquid::ZeroDivisionError) do
+      assert_template_result "4", "{{ 1 | modulo: 0 }}"
+    end
   end
 
   def test_round
     assert_template_result "5", "{{ input | round }}", 'input' => 4.6
     assert_template_result "4", "{{ '4.3' | round }}"
     assert_template_result "4.56", "{{ input | round: 2 }}", 'input' => 4.5612
+    assert_raises(Liquid::FloatDomainError) do
+      assert_template_result "4", "{{ 1.0 | divided_by: 0.0 | round }}"
+    end
   end
 
   def test_ceil
     assert_template_result "5", "{{ input | ceil }}", 'input' => 4.6
     assert_template_result "5", "{{ '4.3' | ceil }}"
+    assert_raises(Liquid::FloatDomainError) do
+      assert_template_result "4", "{{ 1.0 | divided_by: 0.0 | ceil }}"
+    end
   end
 
   def test_floor
     assert_template_result "4", "{{ input | floor }}", 'input' => 4.6
     assert_template_result "4", "{{ '4.3' | floor }}"
+    assert_raises(Liquid::FloatDomainError) do
+      assert_template_result "4", "{{ 1.0 | divided_by: 0.0 | floor }}"
+    end
   end
 
   def test_append
@@ -389,5 +442,20 @@ class StandardFiltersTest < Minitest::Test
 
   def test_cannot_access_private_methods
     assert_template_result('a', "{{ 'a' | to_number }}")
+  end
+
+  def test_date_raises_nothing
+    assert_template_result('', "{{ '' | date: '%D' }}")
+    assert_template_result('abc', "{{ 'abc' | date: '%D' }}")
+  end
+
+  private
+
+  def with_timezone(tz)
+    old_tz = ENV['TZ']
+    ENV['TZ'] = tz
+    yield
+  ensure
+    ENV['TZ'] = old_tz
   end
 end # StandardFiltersTest

@@ -3,8 +3,29 @@ inherit_from: ./.rubocop_todo.yml
 AllCops:
   Exclude:
     - 'performance/shopify/*'
+    - 'pkg/**'
+
+Metrics/BlockNesting:
+  Max: 3
+  Exclude:
+    - 'lib/liquid/block_body.rb'
+
+Metrics/ModuleLength:
+  Enabled: false
+
+Metrics/ClassLength:
+  Enabled: false
 
 Lint/AssignmentInCondition:
+  Enabled: false
+
+Lint/AmbiguousOperator:
+  Enabled: false
+
+Lint/AmbiguousRegexpLiteral:
+  Enabled: false
+
+Lint/ParenthesesAsGroupedExpression:
   Enabled: false
 
 Lint/UnusedBlockArgument:
@@ -13,10 +34,19 @@ Lint/UnusedBlockArgument:
 Lint/EndAlignment:
   AlignWith: variable
 
+Lint/UnusedMethodArgument:
+  Enabled: false
+
 Style/SingleLineBlockParams:
   Enabled: false
 
+Style/DoubleNegation:
+  Enabled: false
+
 Style/StringLiteralsInInterpolation:
+  Enabled: false
+
+Style/AndOr:
   Enabled: false
 
 Style/SignalException:
@@ -87,6 +117,9 @@ Style/ClassVars:
 
 Style/PerlBackrefs:
   Enabled: false
+
+Style/TrivialAccessors:
+  AllowPredicates: true
 
 Style/WordArray:
   Enabled: false

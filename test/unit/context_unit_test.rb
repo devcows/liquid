@@ -267,7 +267,7 @@ class ContextUnitTest < Minitest::Test
 
   def test_access_hashes_with_hash_notation
     @context['products'] = { 'count' => 5, 'tags' => ['deepsnow', 'freestyle'] }
-    @context['product'] = { 'variants' => [ { 'title' => 'draft151cm' }, { 'title' => 'element151cm' }  ] }
+    @context['product'] = { 'variants' => [ { 'title' => 'draft151cm' }, { 'title' => 'element151cm' } ] }
 
     assert_equal 5, @context['products["count"]']
     assert_equal 'deepsnow', @context['products["tags"][0]']
@@ -305,7 +305,7 @@ class ContextUnitTest < Minitest::Test
   end
 
   def test_first_can_appear_in_middle_of_callchain
-    @context['product'] = { 'variants' => [ { 'title' => 'draft151cm' }, { 'title' => 'element151cm' }  ] }
+    @context['product'] = { 'variants' => [ { 'title' => 'draft151cm' }, { 'title' => 'element151cm' } ] }
 
     assert_equal 'draft151cm', @context['product.variants[0].title']
     assert_equal 'element151cm', @context['product.variants[1].title']
@@ -453,19 +453,31 @@ class ContextUnitTest < Minitest::Test
   def test_use_empty_instead_of_any_in_interrupt_handling_to_avoid_lots_of_unnecessary_object_allocations
     mock_any = Spy.on_instance_method(Array, :any?)
     mock_empty = Spy.on_instance_method(Array, :empty?)
-    mock_has_interrupt = Spy.on(@context, :has_interrupt?).and_call_through
 
-    @context.has_interrupt?
+    @context.interrupt?
 
     refute mock_any.has_been_called?
     assert mock_empty.has_been_called?
   end
 
   def test_context_initialization_with_a_proc_in_environment
-    contx = Context.new([:test => ->(c) { c['poutine'] }], { :test => :foo })
+    contx = Context.new([test: ->(c) { c['poutine'] }], { test: :foo })
 
     assert contx
     assert_nil contx['poutine']
   end
 
+  def test_apply_global_filter
+    global_filter_proc = ->(output) { "#{output} filtered" }
+
+    context = Context.new
+    context.global_filter = global_filter_proc
+
+    assert_equal 'hi filtered', context.apply_global_filter('hi')
+  end
+
+  def test_apply_global_filter_when_no_global_filter_exist
+    context = Context.new
+    assert_equal 'hi', context.apply_global_filter('hi')
+  end
 end # ContextTest

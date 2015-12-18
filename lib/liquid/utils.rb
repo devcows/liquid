@@ -8,16 +8,15 @@ module Liquid
       end
     end
 
-    def self.non_blank_string?(collection)
-      collection.is_a?(String) && collection != ''.freeze
-    end
-
     def self.slice_collection_using_each(collection, from, to)
       segments = []
       index = 0
 
       # Maintains Ruby 1.8.7 String#each behaviour on 1.9
-      return [collection] if non_blank_string?(collection)
+      if collection.is_a?(String)
+        return collection.empty? ? [] : [collection]
+      end
+      return [] unless collection.respond_to?(:each)
 
       collection.each do |item|
         if to && to <= index
@@ -32,6 +31,49 @@ module Liquid
       end
 
       segments
+    end
+
+    def self.to_integer(num)
+      return num if num.is_a?(Integer)
+      num = num.to_s
+      begin
+        Integer(num)
+      rescue ::ArgumentError
+        raise Liquid::ArgumentError, "invalid integer"
+      end
+    end
+
+    def self.to_number(obj)
+      case obj
+      when Float
+        BigDecimal.new(obj.to_s)
+      when Numeric
+        obj
+      when String
+        (obj.strip =~ /\A\d+\.\d+\z/) ? BigDecimal.new(obj) : obj.to_i
+      else
+        0
+      end
+    end
+
+    def self.to_date(obj)
+      return obj if obj.respond_to?(:strftime)
+
+      if obj.is_a?(String)
+        return nil if obj.empty?
+        obj = obj.downcase
+      end
+
+      case obj
+      when 'now'.freeze, 'today'.freeze
+        Time.now
+      when /\A\d+\z/, Integer
+        Time.at(obj.to_i)
+      when String
+        Time.parse(obj)
+      end
+    rescue ::ArgumentError
+      nil
     end
   end
 end

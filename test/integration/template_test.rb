@@ -2,7 +2,7 @@ require 'test_helper'
 require 'timeout'
 
 class TemplateContextDrop < Liquid::Drop
-  def before_method(method)
+  def liquid_method_missing(method)
     method
   end
 
@@ -15,12 +15,10 @@ class TemplateContextDrop < Liquid::Drop
   end
 end
 
-class SomethingWithLength
+class SomethingWithLength < Liquid::Drop
   def length
     nil
   end
-
-  liquid_methods :length
 end
 
 class ErroneousDrop < Liquid::Drop
@@ -203,14 +201,28 @@ class TemplateTest < Minitest::Test
   def test_exception_handler_doesnt_reraise_if_it_returns_false
     exception = nil
     Template.parse("{{ 1 | divided_by: 0 }}").render({}, exception_handler: ->(e) { exception = e; false })
-    assert exception.is_a?(ZeroDivisionError)
+    assert exception.is_a?(Liquid::ZeroDivisionError)
   end
 
   def test_exception_handler_does_reraise_if_it_returns_true
     exception = nil
-    assert_raises(ZeroDivisionError) do
+    assert_raises(Liquid::ZeroDivisionError) do
       Template.parse("{{ 1 | divided_by: 0 }}").render({}, exception_handler: ->(e) { exception = e; true })
     end
-    assert exception.is_a?(ZeroDivisionError)
+    assert exception.is_a?(Liquid::ZeroDivisionError)
+  end
+
+  def test_global_filter_option_on_render
+    global_filter_proc = ->(output) { "#{output} filtered" }
+    rendered_template = Template.parse("{{name}}").render({ "name" => "bob" }, global_filter: global_filter_proc)
+
+    assert_equal 'bob filtered', rendered_template
+  end
+
+  def test_global_filter_option_when_native_filters_exist
+    global_filter_proc = ->(output) { "#{output} filtered" }
+    rendered_template = Template.parse("{{name | upcase}}").render({ "name" => "bob" }, global_filter: global_filter_proc)
+
+    assert_equal 'BOB filtered', rendered_template
   end
 end

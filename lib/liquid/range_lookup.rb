@@ -16,7 +16,22 @@ module Liquid
     end
 
     def evaluate(context)
-      context.evaluate(@start_obj).to_i..context.evaluate(@end_obj).to_i
+      start_int = to_integer(context.evaluate(@start_obj))
+      end_int = to_integer(context.evaluate(@end_obj))
+      start_int..end_int
+    end
+
+    private
+
+    def to_integer(input)
+      case input
+      when Integer
+        input
+      when NilClass, String
+        input.to_i
+      else
+        Utils.to_integer(input)
+      end
     end
   end
 end

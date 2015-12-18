@@ -33,7 +33,7 @@ module Liquid
     end
 
     def escape(input)
-      CGI.escapeHTML(input).untaint rescue input
+      CGI.escapeHTML(input).untaint unless input.nil?
     end
     alias_method :h, :escape
 
@@ -42,12 +42,16 @@ module Liquid
     end
 
     def url_encode(input)
-      CGI.escape(input) rescue input
+      CGI.escape(input) unless input.nil?
+    end
+
+    def url_decode(input)
+      CGI.unescape(input) unless input.nil?
     end
 
     def slice(input, offset, length = nil)
-      offset = Integer(offset)
-      length = length ? Integer(length) : 1
+      offset = Utils.to_integer(offset)
+      length = length ? Utils.to_integer(length) : 1
 
       if input.is_a?(Array)
         input.slice(offset, length) || []
@@ -59,15 +63,17 @@ module Liquid
     # Truncate a string down to x characters
     def truncate(input, length = 50, truncate_string = "...".freeze)
       return if input.nil?
-      l = length.to_i - truncate_string.length
+      length = Utils.to_integer(length)
+      l = length - truncate_string.length
       l = 0 if l < 0
-      input.length > length.to_i ? input[0...l] + truncate_string : input
+      input.length > length ? input[0...l] + truncate_string : input
     end
 
     def truncatewords(input, words = 15, truncate_string = "...".freeze)
       return if input.nil?
       wordlist = input.to_s.split
-      l = words.to_i - 1
+      words = Utils.to_integer(words)
+      l = words - 1
       l = 0 if l < 0
       wordlist.length > l ? wordlist[0..l].join(" ".freeze) + truncate_string : input
     end
@@ -114,6 +120,8 @@ module Liquid
       ary = InputIterator.new(input)
       if property.nil?
         ary.sort
+      elsif ary.empty? # The next two cases assume a non-empty array.
+        []
       elsif ary.first.respond_to?(:[]) && !ary.first[property].nil?
         ary.sort { |a, b| a[property] <=> b[property] }
       elsif ary.first.respond_to?(property)
@@ -128,6 +136,8 @@ module Liquid
 
       if property.nil?
         ary.sort { |a, b| a.casecmp(b) }
+      elsif ary.empty? # The next two cases assume a non-empty array.
+        []
       elsif ary.first.respond_to?(:[]) && !ary.first[property].nil?
         ary.sort { |a, b| a[property].casecmp(b[property]) }
       elsif ary.first.respond_to?(property)
@@ -139,10 +149,13 @@ module Liquid
     # provide optional property with which to determine uniqueness
     def uniq(input, property = nil)
       ary = InputIterator.new(input)
+
       if property.nil?
-        input.uniq
-      elsif input.first.respond_to?(:[])
-        input.uniq{ |a| a[property] }
+        ary.uniq
+      elsif ary.empty? # The next two cases assume a non-empty array.
+        []
+      elsif ary.first.respond_to?(:[])
+        ary.uniq{ |a| a[property] }
       end
     end
 
@@ -165,24 +178,40 @@ module Liquid
       end
     end
 
+    # Remove nils within an array
+    # provide optional property with which to check for nil
+    def compact(input, property = nil)
+      ary = InputIterator.new(input)
+
+      if property.nil?
+        ary.compact
+      elsif ary.empty? # The next two cases assume a non-empty array.
+        []
+      elsif ary.first.respond_to?(:[])
+        ary.reject{ |a| a[property].nil? }
+      elsif ary.first.respond_to?(property)
+        ary.reject { |a| a.send(property).nil? }
+      end
+    end
+
     # Replace occurrences of a string with another
     def replace(input, string, replacement = ''.freeze)
-      input.to_s.gsub(string, replacement.to_s)
+      input.to_s.gsub(string.to_s, replacement.to_s)
     end
 
     # Replace the first occurrences of a string with another
     def replace_first(input, string, replacement = ''.freeze)
-      input.to_s.sub(string, replacement.to_s)
+      input.to_s.sub(string.to_s, replacement.to_s)
     end
 
     # remove a substring
     def remove(input, string)
-      input.to_s.gsub(string, ''.freeze)
+      input.to_s.gsub(string.to_s, ''.freeze)
     end
 
     # remove the first occurrences of a substring
     def remove_first(input, string)
-      input.to_s.sub(string, ''.freeze)
+      input.to_s.sub(string.to_s, ''.freeze)
     end
 
     # add one string to another
@@ -238,7 +267,7 @@ module Liquid
     def date(input, format)
       return input if format.to_s.empty?
 
-      return input unless date = to_date(input)
+      return input unless date = Utils.to_date(input)
 
       date.strftime(format.to_s)
     end
@@ -279,25 +308,35 @@ module Liquid
     # division
     def divided_by(input, operand)
       apply_operation(input, operand, :/)
+    rescue ::ZeroDivisionError => e
+      raise Liquid::ZeroDivisionError, e.message
     end
 
     def modulo(input, operand)
       apply_operation(input, operand, :%)
+    rescue ::ZeroDivisionError => e
+      raise Liquid::ZeroDivisionError, e.message
     end
 
     def round(input, n = 0)
-      result = to_number(input).round(to_number(n))
+      result = Utils.to_number(input).round(Utils.to_number(n))
       result = result.to_f if result.is_a?(BigDecimal)
       result = result.to_i if n == 0
       result
+    rescue ::FloatDomainError => e
+      raise Liquid::FloatDomainError, e.message
     end
 
     def ceil(input)
-      to_number(input).ceil.to_i
+      Utils.to_number(input).ceil.to_i
+    rescue ::FloatDomainError => e
+      raise Liquid::FloatDomainError, e.message
     end
 
     def floor(input)
-      to_number(input).floor.to_i
+      Utils.to_number(input).floor.to_i
+    rescue ::FloatDomainError => e
+      raise Liquid::FloatDomainError, e.message
     end
 
     def default(input, default_value = "".freeze)
@@ -307,41 +346,8 @@ module Liquid
 
     private
 
-    def to_number(obj)
-      case obj
-      when Float
-        BigDecimal.new(obj.to_s)
-      when Numeric
-        obj
-      when String
-        (obj.strip =~ /\A\d+\.\d+\z/) ? BigDecimal.new(obj) : obj.to_i
-      else
-        0
-      end
-    end
-
-    def to_date(obj)
-      return obj if obj.respond_to?(:strftime)
-
-      if obj.is_a?(String)
-        return nil if obj.empty?
-        obj = obj.downcase
-      end
-
-      case obj
-      when 'now'.freeze, 'today'.freeze
-        Time.now
-      when /\A\d+\z/, Integer
-        Time.at(obj.to_i)
-      when String
-        Time.parse(obj)
-      end
-    rescue ArgumentError
-      nil
-    end
-
     def apply_operation(input, operand, operation)
-      result = to_number(input).send(operation, to_number(operand))
+      result = Utils.to_number(input).send(operation, Utils.to_number(operand))
       result.is_a?(BigDecimal) ? result.to_f : result
     end
 
@@ -370,6 +376,19 @@ module Liquid
 
       def reverse
         reverse_each.to_a
+      end
+
+      def uniq(&block)
+        to_a.uniq(&block)
+      end
+
+      def compact
+        to_a.compact
+      end
+
+      def empty?
+        @input.each { return false }
+        true
       end
 
       def each

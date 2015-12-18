@@ -5,7 +5,7 @@ require 'minitest/autorun'
 require 'spy/integration'
 
 current_path = File.dirname(File.realpath(__FILE__))
-$:.unshift(File.join(File.expand_path(current_path), '..', 'lib'))
+$LOAD_PATH.unshift(File.join(File.expand_path(current_path), '..', 'lib'))
 require 'liquid.rb'
 require 'liquid/profiler'
 
@@ -15,6 +15,11 @@ if env_mode = ENV['LIQUID_PARSER_MODE']
   mode = env_mode.to_sym
 end
 Liquid::Template.error_mode = mode
+
+if ENV['LIQUID-C'] == '1'
+  puts "-- LIQUID C"
+  require 'liquid/c'
+end
 
 if Minitest.const_defined?('Test')
   # We're on Minitest 5+. Nothing to do here.
@@ -35,19 +40,19 @@ module Minitest
     include Liquid
 
     def assert_template_result(expected, template, assigns = {}, message = nil)
-      assert_equal expected, Template.parse(template).render!(assigns)
+      assert_equal expected, Template.parse(template).render!(assigns), message
     end
 
     def assert_template_result_matches(expected, template, assigns = {}, message = nil)
       return assert_template_result(expected, template, assigns, message) unless expected.is_a? Regexp
 
-      assert_match expected, Template.parse(template).render!(assigns)
+      assert_match expected, Template.parse(template).render!(assigns), message
     end
 
-    def assert_match_syntax_error(match, template, registers = {})
-      exception = assert_raises(Liquid::SyntaxError) {
+    def assert_match_syntax_error(match, template, assigns = {})
+      exception = assert_raises(Liquid::SyntaxError) do
         Template.parse(template).render(assigns)
-      }
+      end
       assert_match match, exception.message
     end
 
@@ -88,5 +93,27 @@ end
 class ThingWithToLiquid
   def to_liquid
     'foobar'
+  end
+end
+
+class ErrorDrop < Liquid::Drop
+  def standard_error
+    raise Liquid::StandardError, 'standard error'
+  end
+
+  def argument_error
+    raise Liquid::ArgumentError, 'argument error'
+  end
+
+  def syntax_error
+    raise Liquid::SyntaxError, 'syntax error'
+  end
+
+  def runtime_error
+    raise 'runtime error'
+  end
+
+  def exception
+    raise Exception, 'exception'
   end
 end

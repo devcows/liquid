@@ -67,16 +67,17 @@ module Liquid
     end
 
     def render(context)
-      context.registers[:for] ||= Hash.new(0)
+      for_offsets = context.registers[:for] ||= Hash.new(0)
+      for_stack = context.registers[:for_stack] ||= []
+
+      parent_loop = for_stack.last
+      for_stack.push(nil)
 
       collection = context.evaluate(@collection_name)
       collection = collection.to_a if collection.is_a?(Range)
 
-      # Maintains Ruby 1.8.7 String#each behaviour on 1.9
-      return render_else(context) unless iterable?(collection)
-
       from = if @from == :continue
-        context.registers[:for][@name].to_i
+        for_offsets[@name].to_i
       else
         context.evaluate(@from).to_i
       end
@@ -95,14 +96,12 @@ module Liquid
       length = segment.length
 
       # Store our progress through the collection for the continue flag
-      context.registers[:for][@name] = from + segment.length
-
-      parent_loop = context['forloop'.freeze]
+      for_offsets[@name] = from + segment.length
 
       context.stack do
         segment.each_with_index do |item, index|
           context[@variable_name] = item
-          context['forloop'.freeze] = {
+          loop_vars = {
             'name'.freeze       => @name,
             'length'.freeze     => length,
             'index'.freeze      => index + 1,
@@ -114,17 +113,23 @@ module Liquid
             'parentloop'.freeze => parent_loop
           }
 
+          context['forloop'.freeze] = loop_vars
+          for_stack[-1] = loop_vars
+
           result << @for_block.render(context)
 
           # Handle any interrupts if they exist.
-          if context.has_interrupt?
+          if context.interrupt?
             interrupt = context.pop_interrupt
             break if interrupt.is_a? BreakInterrupt
             next if interrupt.is_a? ContinueInterrupt
           end
         end
       end
+
       result
+    ensure
+      for_stack.pop
     end
 
     protected
@@ -133,7 +138,7 @@ module Liquid
       if markup =~ Syntax
         @variable_name = $1
         collection_name = $2
-        @reversed = $3
+        @reversed = !!$3
         @name = "#{@variable_name}-#{collection_name}"
         @collection_name = Expression.parse(collection_name)
         markup.scan(TagAttributes) do |key, value|
@@ -147,7 +152,7 @@ module Liquid
     def strict_parse(markup)
       p = Parser.new(markup)
       @variable_name = p.consume(:id)
-      raise SyntaxError.new(options[:locale].t("errors.syntax.for_invalid_in".freeze))  unless p.id?('in'.freeze)
+      raise SyntaxError.new(options[:locale].t("errors.syntax.for_invalid_in".freeze)) unless p.id?('in'.freeze)
       collection_name = p.expression
       @name = "#{@variable_name}-#{collection_name}"
       @collection_name = Expression.parse(collection_name)
@@ -180,10 +185,6 @@ module Liquid
 
     def render_else(context)
       @else_block ? @else_block.render(context) : ''.freeze
-    end
-
-    def iterable?(collection)
-      collection.respond_to?(:each) || Utils.non_blank_string?(collection)
     end
   end
 

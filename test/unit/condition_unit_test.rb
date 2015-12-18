@@ -85,6 +85,11 @@ class ConditionUnitTest < Minitest::Test
     assert_evalutes_false 1, 'contains', 0
   end
 
+  def test_contains_with_string_left_operand_coerces_right_operand_to_string
+    assert_evalutes_true ' 1 ', 'contains', 1
+    assert_evalutes_false ' 1 ', 'contains', 2
+  end
+
   def test_or_condition
     condition = Condition.new(1, '==', 2)
 
@@ -146,5 +151,4 @@ class ConditionUnitTest < Minitest::Test
       Condition.new(left, op, right).evaluate(@context || Liquid::Context.new)
     end
   end
-
 end # ConditionTest

@@ -13,24 +13,30 @@ module Liquid
   #   context['bob']  #=> nil  class Context
   class Context
     attr_reader :scopes, :errors, :registers, :environments, :resource_limits
-    attr_accessor :exception_handler
+    attr_accessor :exception_handler, :template_name, :partial, :global_filter
 
     def initialize(environments = {}, outer_scope = {}, registers = {}, rethrow_errors = false, resource_limits = nil)
       @environments     = [environments].flatten
       @scopes           = [(outer_scope || {})]
       @registers        = registers
       @errors           = []
+      @partial          = false
       @resource_limits  = resource_limits || ResourceLimits.new(Template.default_resource_limits)
       squash_instance_assigns_with_environments
 
       @this_stack_used = false
 
       if rethrow_errors
-        self.exception_handler = ->(e) { true }
+        self.exception_handler = ->(e) { raise }
       end
 
       @interrupts = []
       @filters = []
+      @global_filter = nil
+    end
+
+    def warnings
+      @warnings ||= []
     end
 
     def strainer
@@ -47,8 +53,12 @@ module Liquid
       @strainer = nil
     end
 
+    def apply_global_filter(obj)
+      global_filter.nil? ? obj : global_filter.call(obj)
+    end
+
     # are there any not handled interrupts?
-    def has_interrupt?
+    def interrupt?
       !@interrupts.empty?
     end
 
@@ -62,14 +72,31 @@ module Liquid
       @interrupts.pop
     end
 
-    def handle_error(e, token = nil)
+    def handle_error(e, line_number = nil)
       if e.is_a?(Liquid::Error)
-        e.set_line_number_from_token(token)
+        e.template_name ||= template_name
+        e.line_number ||= line_number
       end
 
+      output = nil
+
+      if exception_handler
+        result = exception_handler.call(e)
+        case result
+        when Exception
+          e = result
+          if e.is_a?(Liquid::Error)
+            e.template_name ||= template_name
+            e.line_number ||= line_number
+          end
+        when String
+          output = result
+        else
+          raise if result
+        end
+      end
       errors.push(e)
-      raise if exception_handler && exception_handler.call(e)
-      Liquid::Error.render(e)
+      output || Liquid::Error.render(e)
     end
 
     def invoke(method, *args)
@@ -141,7 +168,7 @@ module Liquid
       evaluate(Expression.parse(expression))
     end
 
-    def has_key?(key)
+    def key?(key)
       self[key] != nil
     end
 
@@ -153,7 +180,7 @@ module Liquid
     def find_variable(key)
       # This was changed from find() to find_index() because this is a very hot
       # path and find_index() is optimized in MRI to reduce object allocation
-      index = @scopes.find_index { |s| s.has_key?(key) }
+      index = @scopes.find_index { |s| s.key?(key) }
       scope = @scopes[index] if index
 
       variable = nil
@@ -190,7 +217,7 @@ module Liquid
     def squash_instance_assigns_with_environments
       @scopes.last.each_key do |k|
         @environments.each do |env|
-          if env.has_key?(k)
+          if env.key?(k)
             scopes.last[k] = lookup_and_evaluate(env, k)
             break
           end

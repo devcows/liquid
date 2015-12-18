@@ -11,14 +11,16 @@ module Liquid
   #
   class Variable
     FilterParser = /(?:\s+|#{QuotedFragment}|#{ArgumentSeparator})+/o
-    attr_accessor :filters, :name, :warnings
-    attr_accessor :line_number
+    attr_accessor :filters, :name, :line_number
+    attr_reader :parse_context
+    alias_method :options, :parse_context
     include ParserSwitching
 
-    def initialize(markup, options = {})
+    def initialize(markup, parse_context)
       @markup  = markup
       @name    = nil
-      @options = options || {}
+      @parse_context = parse_context
+      @line_number = parse_context.line_number
 
       parse_with_selected_parser(markup)
     end
@@ -41,11 +43,10 @@ module Liquid
       if filter_markup =~ /#{FilterSeparator}\s*(.*)/om
         filters = $1.scan(FilterParser)
         filters.each do |f|
-          if f =~ /\w+/
-            filtername = Regexp.last_match(0)
-            filterargs = f.scan(/(?:#{FilterArgumentSeparator}|#{ArgumentSeparator})\s*((?:\w+\s*\:\s*)?#{QuotedFragment})/o).flatten
-            @filters << parse_filter_expressions(filtername, filterargs)
-          end
+          next unless f =~ /\w+/
+          filtername = Regexp.last_match(0)
+          filterargs = f.scan(/(?:#{FilterArgumentSeparator}|#{ArgumentSeparator})\s*((?:\w+\s*\:\s*)?#{QuotedFragment})/o).flatten
+          @filters << parse_filter_expressions(filtername, filterargs)
         end
       end
     end
@@ -72,10 +73,16 @@ module Liquid
     end
 
     def render(context)
-      @filters.inject(context.evaluate(@name)) do |output, (filter_name, filter_args, filter_kwargs)|
+      obj = @filters.inject(context.evaluate(@name)) do |output, (filter_name, filter_args, filter_kwargs)|
         filter_args = evaluate_filter_expressions(context, filter_args, filter_kwargs)
-        output = context.invoke(filter_name, output, *filter_args)
-      end.tap{ |obj| taint_check(obj) }
+        context.invoke(filter_name, output, *filter_args)
+      end
+
+      obj = context.apply_global_filter(obj)
+
+      taint_check(context, obj)
+
+      obj
     end
 
     private
@@ -107,17 +114,22 @@ module Liquid
       parsed_args
     end
 
-    def taint_check(obj)
-      if obj.tainted?
-        @markup =~ QuotedFragment
-        name = Regexp.last_match(0)
-        case Template.taint_mode
-        when :warn
-          @warnings ||= []
-          @warnings << "variable '#{name}' is tainted and was not escaped"
-        when :error
-          raise TaintedError, "Error - variable '#{name}' is tainted and was not escaped"
-        end
+    def taint_check(context, obj)
+      return unless obj.tainted?
+      return if Template.taint_mode == :lax
+
+      @markup =~ QuotedFragment
+      name = Regexp.last_match(0)
+
+      error = TaintedError.new("variable '#{name}' is tainted and was not escaped")
+      error.line_number = line_number
+      error.template_name = context.template_name
+
+      case Template.taint_mode
+      when :warn
+        context.warnings << error
+      when :error
+        raise error
       end
     end
   end

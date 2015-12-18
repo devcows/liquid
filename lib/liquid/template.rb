@@ -13,12 +13,8 @@ module Liquid
   #   template.render('user_name' => 'bob')
   #
   class Template
-    DEFAULT_OPTIONS = {
-      locale: I18n.new
-    }
-
     attr_accessor :root
-    attr_reader :resource_limits
+    attr_reader :resource_limits, :warnings
 
     @@file_system = BlankFileSystem.new
 
@@ -29,7 +25,7 @@ module Liquid
       end
 
       def [](tag_name)
-        return nil unless @tags.has_key?(tag_name)
+        return nil unless @tags.key?(tag_name)
         return @cache[tag_name] if Liquid.cache_classes
 
         lookup_class(@tags[tag_name]).tap { |o| @cache[tag_name] = o }
@@ -120,14 +116,10 @@ module Liquid
       @options = options
       @profiling = options[:profile]
       @line_numbers = options[:line_numbers] || @profiling
-      @root = Document.parse(tokenize(source), DEFAULT_OPTIONS.merge(options))
-      @warnings = nil
+      parse_context = options.is_a?(ParseContext) ? options : ParseContext.new(options)
+      @root = Document.parse(tokenize(source), parse_context)
+      @warnings = parse_context.warnings
       self
-    end
-
-    def warnings
-      return [] unless @root
-      @warnings ||= @root.warnings
     end
 
     def registers
@@ -168,7 +160,7 @@ module Liquid
         c = args.shift
 
         if @rethrow_errors
-          c.exception_handler = ->(e) { true }
+          c.exception_handler = ->(e) { raise }
         end
 
         c
@@ -187,20 +179,15 @@ module Liquid
       when Hash
         options = args.pop
 
-        if options[:registers].is_a?(Hash)
-          registers.merge!(options[:registers])
-        end
+        registers.merge!(options[:registers]) if options[:registers].is_a?(Hash)
 
-        if options[:filters]
-          context.add_filters(options[:filters])
-        end
+        context.add_filters(options[:filters]) if options[:filters]
 
-        if options[:exception_handler]
-          context.exception_handler = options[:exception_handler]
-        end
-      when Module
-        context.add_filters(args.pop)
-      when Array
+        context.global_filter = options[:global_filter] if options[:global_filter]
+
+        context.exception_handler = options[:exception_handler] if options[:exception_handler]
+
+      when Module, Array
         context.add_filters(args.pop)
       end
 
@@ -210,7 +197,7 @@ module Liquid
       begin
         # render the nodelist.
         # for performance reasons we get an array back here. join will make a string out of it.
-        result = with_profiling do
+        result = with_profiling(context) do
           @root.render(context)
         end
         result.respond_to?(:join) ? result.join : result
@@ -228,32 +215,12 @@ module Liquid
 
     private
 
-    # Uses the <tt>Liquid::TemplateParser</tt> regexp to tokenize the passed source
     def tokenize(source)
-      source = source.source if source.respond_to?(:source)
-      return [] if source.to_s.empty?
-
-      tokens = calculate_line_numbers(source.split(TemplateParser))
-
-      # removes the rogue empty element at the beginning of the array
-      tokens.shift if tokens[0] && tokens[0].empty?
-
-      tokens
+      Tokenizer.new(source, @line_numbers)
     end
 
-    def calculate_line_numbers(raw_tokens)
-      return raw_tokens unless @line_numbers
-
-      current_line = 1
-      raw_tokens.map do |token|
-        Token.new(token, current_line).tap do
-          current_line += token.count("\n")
-        end
-      end
-    end
-
-    def with_profiling
-      if @profiling && !@options[:included]
+    def with_profiling(context)
+      if @profiling && !context.partial
         raise "Profiler not loaded, require 'liquid/profiler' first" unless defined?(Liquid::Profiler)
 
         @profiler = Profiler.new

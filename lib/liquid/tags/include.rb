@@ -41,9 +41,9 @@ module Liquid
     end
 
     def render(context)
-      partial = load_cached_partial(context)
-
       template_name = context.evaluate(@template_name_expr)
+      partial = load_cached_partial(template_name, context)
+
       context_variable_name = template_name.split('/'.freeze).last
 
       variable = if @variable_name_expr
@@ -52,34 +52,50 @@ module Liquid
         context.find_variable(template_name)
       end
 
-      context.stack do
-        @attributes.each do |key, value|
-          context[key] = context.evaluate(value)
-        end
+      old_template_name = context.template_name
+      old_partial = context.partial
+      begin
+        context.template_name = template_name
+        context.partial = true
+        context.stack do
+          @attributes.each do |key, value|
+            context[key] = context.evaluate(value)
+          end
 
-        if variable.is_a?(Array)
-          variable.collect do |var|
-            context[context_variable_name] = var
+          if variable.is_a?(Array)
+            variable.collect do |var|
+              context[context_variable_name] = var
+              partial.render(context)
+            end
+          else
+            context[context_variable_name] = variable
             partial.render(context)
           end
-        else
-          context[context_variable_name] = variable
-          partial.render(context)
         end
+      ensure
+        context.template_name = old_template_name
+        context.partial = old_partial
       end
     end
 
     private
 
-    def load_cached_partial(context)
+    alias_method :parse_context, :options
+    private :parse_context
+
+    def load_cached_partial(template_name, context)
       cached_partials = context.registers[:cached_partials] || {}
-      template_name = context.evaluate(@template_name_expr)
 
       if cached = cached_partials[template_name]
         return cached
       end
       source = read_template_from_file_system(context)
-      partial = Liquid::Template.parse(source, pass_options)
+      begin
+        parse_context.partial = true
+        partial = Liquid::Template.parse(source, parse_context)
+      ensure
+        parse_context.partial = false
+      end
       cached_partials[template_name] = partial
       context.registers[:cached_partials] = cached_partials
       partial
@@ -89,16 +105,6 @@ module Liquid
       file_system = context.registers[:file_system] || Liquid::Template.file_system
 
       file_system.read_template_file(context.evaluate(@template_name_expr))
-    end
-
-    def pass_options
-      dont_pass = @options[:include_options_blacklist]
-      return { locale: @options[:locale] } if dont_pass == true
-      opts = @options.merge(included: true, include_options_blacklist: false)
-      if dont_pass.is_a?(Array)
-        dont_pass.each { |o| opts.delete(o) }
-      end
-      opts
     end
   end
 
